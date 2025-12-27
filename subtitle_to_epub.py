@@ -102,105 +102,212 @@ def extract_anime_name(filename: str) -> str:
     return name.strip()
 
 
-def parse_srt_content(content: str) -> list[str]:
-    """Parse SRT content and extract subtitle text lines."""
-    lines = []
+# Supported subtitle extensions
+SUBTITLE_EXTENSIONS = ('.srt', '.ass', '.ssa', '.vtt')
 
-    # Some Netflix SRTs have literal \n instead of actual newlines - convert them
+
+def clean_subtitle_content(content: str) -> str:
+    """Clean and normalize subtitle content."""
+    # Some Netflix SRTs have literal \n instead of actual newlines
     if '\\n' in content and '\n' not in content[:1000]:
         content = content.replace('\\n', '\n')
-
-    # Also handle case where both exist
     content = content.replace('\\n', '\n')
 
     # Normalize line endings
     content = content.replace('\r\n', '\n').replace('\r', '\n')
 
     # Remove HTML entities
-    content = content.replace('&lrm;', '')  # Left-to-right mark
-    content = content.replace('&rlm;', '')  # Right-to-left mark
+    content = content.replace('&lrm;', '')
+    content = content.replace('&rlm;', '')
     content = content.replace('&nbsp;', ' ')
 
     # Remove Unicode directional formatting characters
-    content = content.replace('\u202a', '')  # LTR embedding
-    content = content.replace('\u202b', '')  # RTL embedding
-    content = content.replace('\u202c', '')  # Pop directional formatting
-    content = content.replace('\u200e', '')  # LTR mark
-    content = content.replace('\u200f', '')  # RTL mark
-    content = content.replace('\ufeff', '')  # BOM
+    for char in ['\u202a', '\u202b', '\u202c', '\u200e', '\u200f', '\ufeff']:
+        content = content.replace(char, '')
+
+    return content
+
+
+def filter_subtitle_line(line: str) -> Optional[str]:
+    """Filter and clean a single subtitle line. Returns None if line should be skipped."""
+    # Remove HTML tags and ASS formatting codes
+    clean_line = re.sub(r'<[^>]+>', '', line)
+    clean_line = re.sub(r'\{[^}]*\}', '', clean_line)  # ASS/SSA formatting like {\i1}
+    clean_line = clean_line.strip()
+
+    if not clean_line:
+        return None
+
+    # Skip music-only lines
+    if re.match(r'^[♪♫♬♩～〜~\s\-_\.]+$', clean_line):
+        return None
+
+    # Skip lines that are only punctuation/symbols
+    if re.match(r'^[\s\.\-_\!\?\,\。\、\！\？]+$', clean_line):
+        return None
+
+    # Skip standalone speaker labels like "（爽子）"
+    if re.match(r'^[\(（][^)）]+[\)）]$', clean_line):
+        return None
+
+    return clean_line
+
+
+def parse_srt_content(content: str) -> list[str]:
+    """Parse SRT subtitle content."""
+    lines = []
+    content = clean_subtitle_content(content)
 
     # Split into blocks (separated by blank lines)
     blocks = re.split(r'\n\s*\n', content)
 
     for block in blocks:
-        block_lines = block.strip().split('\n')
-
-        for line in block_lines:
+        for line in block.strip().split('\n'):
             line = line.strip()
 
-            # Skip empty lines
-            if not line:
-                continue
-
-            # Skip subtitle index numbers (pure digits)
+            # Skip index numbers and timestamps
             if re.match(r'^\d+$', line):
                 continue
-
-            # Skip timestamp lines (00:01:24,918 --> 00:01:29,047)
             if re.match(r'^\d{1,2}:\d{2}:\d{2}[,\.]\d{3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[,\.]\d{3}', line):
                 continue
 
-            # Remove HTML tags and formatting
-            clean_line = re.sub(r'<[^>]+>', '', line)
-            clean_line = re.sub(r'\{[^}]+\}', '', clean_line)  # Remove {formatting}
-            clean_line = clean_line.strip()
-
-            # Skip music-only lines (just musical notes, with optional tilde)
-            if re.match(r'^[♪♫♬♩～〜~\s\-_\.]+$', clean_line):
-                continue
-
-            # Skip lines that are only punctuation/symbols
-            if re.match(r'^[\s\.\-_\!\?\,\。\、\！\？]+$', clean_line):
-                continue
-
-            # Skip lines that are only speaker labels with nothing after
-            # e.g., "（爽子）" or "(Sawako)"
-            if re.match(r'^[\(（][^)）]+[\)）]$', clean_line):
-                continue
-
+            clean_line = filter_subtitle_line(line)
             if clean_line:
                 lines.append(clean_line)
 
     return lines
 
 
+def parse_ass_content(content: str) -> list[str]:
+    """Parse ASS/SSA subtitle content."""
+    lines = []
+    content = clean_subtitle_content(content)
+
+    in_events = False
+    dialogue_format = []
+
+    for line in content.split('\n'):
+        line = line.strip()
+
+        # Find the [Events] section
+        if line.lower() == '[events]':
+            in_events = True
+            continue
+
+        # Detect new section (exit Events)
+        if line.startswith('[') and in_events:
+            in_events = False
+            continue
+
+        if not in_events:
+            continue
+
+        # Parse Format line to find Text column position
+        if line.lower().startswith('format:'):
+            format_parts = line[7:].split(',')
+            dialogue_format = [p.strip().lower() for p in format_parts]
+            continue
+
+        # Parse Dialogue lines
+        if line.lower().startswith('dialogue:'):
+            # Split only up to the number of format columns - 1
+            # The last column (Text) may contain commas
+            parts = line[9:].split(',', len(dialogue_format) - 1)
+
+            if 'text' in dialogue_format and len(parts) >= len(dialogue_format):
+                text_idx = dialogue_format.index('text')
+                text = parts[text_idx] if text_idx < len(parts) else ''
+
+                # Handle ASS line breaks
+                text = text.replace('\\N', '\n').replace('\\n', '\n')
+
+                for subline in text.split('\n'):
+                    clean_line = filter_subtitle_line(subline)
+                    if clean_line:
+                        lines.append(clean_line)
+
+    return lines
+
+
+def parse_vtt_content(content: str) -> list[str]:
+    """Parse WebVTT subtitle content."""
+    lines = []
+    content = clean_subtitle_content(content)
+
+    # Remove WEBVTT header and metadata
+    content = re.sub(r'^WEBVTT.*?\n\n', '', content, flags=re.DOTALL)
+
+    # Split into cue blocks
+    blocks = re.split(r'\n\s*\n', content)
+
+    for block in blocks:
+        for line in block.strip().split('\n'):
+            line = line.strip()
+
+            # Skip cue identifiers (usually numbers or names)
+            if re.match(r'^[\w\-]+$', line) and '-->' not in line:
+                continue
+
+            # Skip timestamp lines (00:01:24.918 --> 00:01:29.047)
+            if re.match(r'^\d{1,2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{1,2}:\d{2}:\d{2}\.\d{3}', line):
+                continue
+
+            # Skip NOTE comments
+            if line.upper().startswith('NOTE'):
+                continue
+
+            clean_line = filter_subtitle_line(line)
+            if clean_line:
+                lines.append(clean_line)
+
+    return lines
+
+
+def parse_subtitle_file(file_path: Path, content: str) -> list[str]:
+    """Parse subtitle file based on its extension."""
+    ext = file_path.suffix.lower()
+
+    if ext == '.srt':
+        return parse_srt_content(content)
+    elif ext in ('.ass', '.ssa'):
+        return parse_ass_content(content)
+    elif ext == '.vtt':
+        return parse_vtt_content(content)
+    else:
+        # Fallback: try SRT parsing
+        return parse_srt_content(content)
+
+
 def extract_archive(archive_path: Path, temp_dir: Path) -> list[Path]:
-    """Extract SRT files from ZIP or 7z archive."""
-    srt_files = []
+    """Extract subtitle files from ZIP or 7z archive."""
+    subtitle_files = []
+
+    def is_subtitle(name: str) -> bool:
+        return name.lower().endswith(SUBTITLE_EXTENSIONS)
 
     if archive_path.suffix.lower() == '.zip':
         with zipfile.ZipFile(archive_path, 'r') as zf:
             for name in zf.namelist():
-                if name.lower().endswith('.srt'):
+                if is_subtitle(name):
                     zf.extract(name, temp_dir)
-                    srt_files.append(temp_dir / name)
+                    subtitle_files.append(temp_dir / name)
 
     elif archive_path.suffix.lower() == '.7z':
         with py7zr.SevenZipFile(archive_path, 'r') as szf:
             all_files = szf.getnames()
-            srt_names = [n for n in all_files if n.lower().endswith('.srt')]
-            if srt_names:
-                szf.extract(path=temp_dir, targets=srt_names)
-                for name in srt_names:
-                    srt_files.append(temp_dir / name)
+            sub_names = [n for n in all_files if is_subtitle(n)]
+            if sub_names:
+                szf.extract(path=temp_dir, targets=sub_names)
+                for name in sub_names:
+                    subtitle_files.append(temp_dir / name)
 
     # Sort files by episode number
     def get_episode_num(path: Path) -> int:
         match = re.search(r'[ES]?(\d+)', path.name, re.IGNORECASE)
         return int(match.group(1)) if match else 0
 
-    srt_files.sort(key=get_episode_num)
-    return srt_files
+    subtitle_files.sort(key=get_episode_num)
+    return subtitle_files
 
 
 def fetch_anime_info(anime_name: str) -> tuple[Optional[bytes], Optional[str], Optional[str]]:
@@ -356,34 +463,34 @@ def process_archive(archive_path: Path, output_dir: Path) -> bool:
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
 
-        # Extract SRT files
+        # Extract subtitle files
         print("  Extracting subtitles...")
-        srt_files = extract_archive(archive_path, temp_path)
+        subtitle_files = extract_archive(archive_path, temp_path)
 
-        if not srt_files:
-            print("  No SRT files found!")
+        if not subtitle_files:
+            print("  No subtitle files found!")
             return False
 
-        print(f"  Found {len(srt_files)} subtitle files")
+        print(f"  Found {len(subtitle_files)} subtitle files")
 
-        # Parse all SRT files
+        # Parse all subtitle files
         all_lines = []
-        for srt_file in srt_files:
+        for sub_file in subtitle_files:
             try:
                 # Try different encodings
                 for encoding in ['utf-8', 'utf-8-sig', 'shift-jis', 'cp932', 'euc-jp']:
                     try:
-                        content = srt_file.read_text(encoding=encoding)
+                        content = sub_file.read_text(encoding=encoding)
                         break
                     except UnicodeDecodeError:
                         continue
                 else:
-                    content = srt_file.read_text(encoding='utf-8', errors='ignore')
+                    content = sub_file.read_text(encoding='utf-8', errors='ignore')
 
-                lines = parse_srt_content(content)
+                lines = parse_subtitle_file(sub_file, content)
                 all_lines.extend(lines)
             except Exception as e:
-                print(f"  Warning: Could not parse {srt_file.name}: {e}")
+                print(f"  Warning: Could not parse {sub_file.name}: {e}")
 
         print(f"  Extracted {len(all_lines)} subtitle lines")
 
