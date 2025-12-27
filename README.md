@@ -1,4 +1,4 @@
-# anisubs2epub
+# Anime Subs to EPUB
 
 Convert anime subtitle archives into EPUB files for vocabulary tracking.
 
