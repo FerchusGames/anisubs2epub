@@ -1,6 +1,6 @@
 # anisubs2epub
 
-Convert anime subtitle archives into EPUB files for vocabulary tracking with [Migaku Reader](https://reader.migaku.com/).
+Convert anime subtitle archives into EPUB files for vocabulary tracking.
 
 ## What is this?
 
