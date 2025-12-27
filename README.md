@@ -1,4 +1,4 @@
-# subs2epub
+# anisubs2epub
 
 Convert anime subtitle archives into EPUB files for vocabulary tracking with [Migaku Reader](https://reader.migaku.com/).
 
@@ -13,19 +13,16 @@ This tool takes ZIP/7z archives containing full seasons of anime subtitles and c
 
 ## Why?
 
-Migaku Reader can analyze EPUB files and show you what percentage of words you already know. By converting anime subtitles to EPUB format, you can:
+The original purpose of this tool was to be used with the Migaku Reader, which can analyze EPUB files and show you what percentage of words you already know. By converting anime subtitles to EPUB format, you can:
 
 - **Track your progress** - See exactly how much of an anime you can understand
 - **Choose what to watch** - Pick shows that match your current level
 - **Measure improvement** - Watch your comprehension percentage grow over time
 
-<!--
-## Screenshot
+## Migaku Reader Screenshot
 
-![Migaku Reader showing vocabulary percentages](screenshot.png)
+<img width="470" height="540" alt="Migaku Reader showing vocabulary percentages" src="https://github.com/user-attachments/assets/5deccdeb-ae48-44ad-a12b-448c52f27dd5" />
 
-TODO: Add your screenshot here showing Migaku Reader with anime subtitle EPUBs
--->
 
 ## Supported Formats
 
@@ -85,6 +82,6 @@ Dependencies are installed automatically on first run:
 5. Generates an EPUB with the cover and all episode text
 6. Saves to `Merged/` folder
 
-## License
+## Note on Implementation
 
-MIT
+This project was put together quickly as a personal utility and was created with Claude Code in roughly half an hour. It is shared mainly to demonstrate the idea and workflow rather than as a polished or production-ready tool.
