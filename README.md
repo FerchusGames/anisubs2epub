@@ -1,4 +1,4 @@
-# Anime Subs to EPUB
+# Migaku Anime Subs to Reader
 
 Convert anime subtitle archives into EPUB files for vocabulary tracking.
 
